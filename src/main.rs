@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::fs;
 use clap::Parser;
@@ -24,10 +25,6 @@ fn get_needed_libs<P>(path: P) -> Result<Vec<String>, HandleError>
 where
     P: AsRef<std::path::Path> 
 {
-    // let filename = path.as_ref()
-    //     .file_name()
-    //     .unwrap_or_default()
-    //     .to_owned();
     let bin_data = fs::read(path)
         .map_err(HandleError::IoError)?;
     let elf_header = FileHeader64::<object::Endianness>::parse(&*bin_data)
@@ -90,6 +87,7 @@ where
 fn main() {
     let args = Args::parse();
     let bin_paths = fs::read_dir(args.executables_dir).expect("Could not list binaries");
+    let mut lib_map: HashMap<String, Vec<String>> = HashMap::new();
     for dir_entry in bin_paths {
         let dir_entry = match dir_entry {
             Ok(p) => p,
@@ -98,17 +96,25 @@ fn main() {
                 continue;
             },
         };
+        let filename = dir_entry.file_name();
         match get_needed_libs(dir_entry.path()) {
             Ok(libs) => {
-                println!("Found the following libs for {}:", dir_entry.file_name().to_str().unwrap_or_default());
                 for lib in libs {
-                    println!("\t{}", lib)
+                    lib_map.entry(lib).or_default().push(
+                        filename.to_str().unwrap().to_string()
+                    );
                 }
-                println!();
             },
             Err(e) => println!(
                 "Error handling {}: {:?}", dir_entry.file_name().to_str().unwrap_or_default(), e
             ),
         }
+    }
+    for (lib, exes) in lib_map {
+        println!("{} ({} exes)", lib, exes.len());
+        for exe in exes {
+            println!("\t<= {}", exe);
+        }
+        println!()
     }
 }
