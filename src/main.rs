@@ -30,6 +30,11 @@ where
     let obj_file = object::File::parse(&*bin_data)
         .map_err(HandleError::ObjectReadError)?;
     println!("File {:#?} is {:#?}", filename, obj_file.kind());
+    if obj_file.kind() == object::ObjectKind::Executable {
+        if let Some(table) = obj_file.dynamic_symbol_table(){
+            println!("Symbol table:\n{:?}", table);
+        }
+    }
     return Ok(());
 }
 
