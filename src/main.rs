@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 use std::fs;
 use clap::Parser;
-use object::Object;
+use object::StringTable;
+use object::elf::{FileHeader64, DT_NEEDED, DT_STRTAB, DT_STRSZ};
+use object::read::elf::{FileHeader, Dyn};
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -15,29 +17,74 @@ struct Args {
 enum HandleError {
     IoError(std::io::Error),
     ObjectReadError(object::read::Error),
+    NoDynamic,
 }
 
-fn handle_path<P>(path: P) -> Result<(), HandleError>
+fn get_needed_libs<P>(path: P) -> Result<Vec<String>, HandleError>
 where
     P: AsRef<std::path::Path> 
 {
-    let filename = path.as_ref()
-        .file_name()
-        .unwrap_or_default()
-        .to_owned();
+    // let filename = path.as_ref()
+    //     .file_name()
+    //     .unwrap_or_default()
+    //     .to_owned();
     let bin_data = fs::read(path)
         .map_err(HandleError::IoError)?;
-    let obj_file = object::File::parse(&*bin_data)
+    let elf_header = FileHeader64::<object::Endianness>::parse(&*bin_data)
         .map_err(HandleError::ObjectReadError)?;
-    println!("File {:#?} is {:#?}", filename, obj_file.kind());
-    if obj_file.kind() == object::ObjectKind::Executable {
-        println!("Symbols:");
-        for ds in obj_file.dynamic_symbols() {
-            println!("{:?}", ds);
+    let endian = elf_header.endian().unwrap();
+    let s = elf_header.sections(
+        endian, bin_data.as_slice()
+    )
+        .map_err(HandleError::ObjectReadError)?;
+    let dyn_sec = s.dynamic(
+        endian, bin_data.as_slice()
+    )
+        .map_err(HandleError::ObjectReadError)?
+        .ok_or(HandleError::NoDynamic)?;
+    let mut libs_offs: Vec<u64> = vec![];
+    let mut dt_strtab: u64 = 0;
+    let mut dt_strsz: u64 = 0;
+    for dyn_element in dyn_sec.0 {
+        let tag32 = dyn_element.tag32(endian);
+        match tag32 {
+            Some(DT_NEEDED) => {
+                libs_offs.push(dyn_element.d_val(endian).into());
+            },
+            Some(DT_STRTAB) => {
+                dt_strtab = dyn_element.d_val(endian).into();
+            },
+            Some(DT_STRSZ) => {
+                dt_strsz = dyn_element.d_val(endian).into();
+            }
+            _ => (),
         }
-        println!("");
     }
-    return Ok(());
+    let libs_offs = libs_offs.iter()
+        .map(|n| u32::try_from(*n).ok());
+    let str_table = StringTable::new(
+        bin_data.as_slice(), dt_strtab, dt_strtab + dt_strsz
+    );
+    let mut libs: Vec<String> = vec![];
+    for offs in libs_offs {
+        let offs = if let Some(offs) = offs {
+            offs
+        }
+        else {
+            println!("Couldn't convert offset to u32");
+            continue;
+        };
+        let name = str_table.get(offs)
+            .map(String::from_utf8_lossy);
+        if let Ok(name) = name {
+            libs.push(name.to_string());
+        }
+        else {
+            println!("Couldn't get lib name by offset");
+            continue;
+        }
+    }
+    return Ok(libs);
 }
 
 fn main() {
@@ -51,8 +98,17 @@ fn main() {
                 continue;
             },
         };
-        if let Err(e) = handle_path(dir_entry.path()) {
-            println!("Error handling {}: {:?}", dir_entry.file_name().to_str().unwrap_or_default(), e);
+        match get_needed_libs(dir_entry.path()) {
+            Ok(libs) => {
+                println!("Found the following libs for {}:", dir_entry.file_name().to_str().unwrap_or_default());
+                for lib in libs {
+                    println!("\t{}", lib)
+                }
+                println!();
+            },
+            Err(e) => println!(
+                "Error handling {}: {:?}", dir_entry.file_name().to_str().unwrap_or_default(), e
+            ),
         }
     }
 }
