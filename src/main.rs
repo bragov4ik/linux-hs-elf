@@ -31,9 +31,11 @@ where
         .map_err(HandleError::ObjectReadError)?;
     println!("File {:#?} is {:#?}", filename, obj_file.kind());
     if obj_file.kind() == object::ObjectKind::Executable {
-        if let Some(table) = obj_file.dynamic_symbol_table(){
-            println!("Symbol table:\n{:?}", table);
+        println!("Symbols:");
+        for ds in obj_file.dynamic_symbols() {
+            println!("{:?}", ds);
         }
+        println!("");
     }
     return Ok(());
 }
