@@ -99,6 +99,7 @@ fn main() {
             },
         };
         let filename = dir_entry.file_name();
+        debug!("Handling file {}", filename);
         match get_needed_libs(dir_entry.path()) {
             Ok(libs) => {
                 for lib in libs {
