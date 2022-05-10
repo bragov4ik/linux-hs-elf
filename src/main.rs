@@ -99,7 +99,7 @@ fn main() {
             },
         };
         let filename = dir_entry.file_name();
-        debug!("Handling file {}", filename);
+        debug!("Handling file {}", filename.to_str().unwrap());
         match get_needed_libs(dir_entry.path()) {
             Ok(libs) => {
                 for lib in libs {
@@ -109,7 +109,7 @@ fn main() {
                 }
             },
             Err(e) => warn!(
-                "Couldn't handle {}: {:?}", dir_entry.file_name().to_str().unwrap_or_default(), e
+                "Couldn't handle {}: {:?}", dir_entry.file_name().to_str().unwrap(), e
             ),
         }
     }
