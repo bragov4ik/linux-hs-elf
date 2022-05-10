@@ -5,6 +5,7 @@ use clap::Parser;
 use object::StringTable;
 use object::elf::{FileHeader64, DT_NEEDED, DT_STRTAB, DT_STRSZ};
 use object::read::elf::{FileHeader, Dyn};
+use tracing::warn;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -68,7 +69,7 @@ where
             offs
         }
         else {
-            println!("Couldn't convert offset to u32");
+            warn!("Couldn't convert offset to u32");
             continue;
         };
         let name = str_table.get(offs)
@@ -77,7 +78,7 @@ where
             libs.push(name.to_string());
         }
         else {
-            println!("Couldn't get lib name by offset");
+            warn!("Couldn't get lib name by offset");
             continue;
         }
     }
@@ -85,6 +86,7 @@ where
 }
 
 fn main() {
+    tracing_subscriber::fmt::init();
     let args = Args::parse();
     let bin_paths = fs::read_dir(args.executables_dir).expect("Could not list binaries");
     let mut lib_map: HashMap<String, Vec<String>> = HashMap::new();
@@ -92,7 +94,7 @@ fn main() {
         let dir_entry = match dir_entry {
             Ok(p) => p,
             Err(e) => {
-                println!("Error getting next path: {:?}", e);
+                warn!("Couldn't get next path: {:?}", e);
                 continue;
             },
         };
@@ -105,8 +107,8 @@ fn main() {
                     );
                 }
             },
-            Err(e) => println!(
-                "Error handling {}: {:?}", dir_entry.file_name().to_str().unwrap_or_default(), e
+            Err(e) => warn!(
+                "Couldn't handle {}: {:?}", dir_entry.file_name().to_str().unwrap_or_default(), e
             ),
         }
     }
