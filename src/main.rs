@@ -5,7 +5,7 @@ use clap::Parser;
 use object::StringTable;
 use object::elf::{FileHeader64, DT_NEEDED, DT_STRTAB, DT_STRSZ};
 use object::read::elf::{FileHeader, Dyn};
-use tracing::warn;
+use tracing::{warn, debug};
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
