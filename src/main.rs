@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::fs;
 use clap::Parser;
-use object::StringTable;
+use object::{StringTable, Endianness};
 use object::elf::{FileHeader64, DT_NEEDED, DT_STRTAB, DT_STRSZ};
 use object::read::elf::{FileHeader, Dyn};
 use tracing::{warn, debug};
@@ -20,23 +20,19 @@ enum HandleError {
     IoError(std::io::Error),
     ObjectReadError(object::read::Error),
     NoDynamic,
+    NotElf,
 }
 
-fn get_needed_libs<P>(path: P) -> Result<Vec<String>, HandleError>
+fn extract_libs<H>(bin_data: &[u8], endian: Endianness, header: &H) -> Result<Vec<String>, HandleError>
 where
-    P: AsRef<std::path::Path> 
+    H: FileHeader<Endian = Endianness>,
 {
-    let bin_data = fs::read(path)
-        .map_err(HandleError::IoError)?;
-    let elf_header = FileHeader64::<object::Endianness>::parse(&*bin_data)
-        .map_err(HandleError::ObjectReadError)?;
-    let endian = elf_header.endian().unwrap();
-    let s = elf_header.sections(
-        endian, bin_data.as_slice()
+    let s = header.sections(
+        endian, bin_data
     )
         .map_err(HandleError::ObjectReadError)?;
     let dyn_sec = s.dynamic(
-        endian, bin_data.as_slice()
+        endian, bin_data
     )
         .map_err(HandleError::ObjectReadError)?
         .ok_or(HandleError::NoDynamic)?;
@@ -47,7 +43,9 @@ where
         let tag32 = dyn_element.tag32(endian);
         match tag32 {
             Some(DT_NEEDED) => {
-                libs_offs.push(dyn_element.d_val(endian).into());
+                let offs = dyn_element.d_val(endian).into(); 
+                debug!("Found required dyn library at offset {}", offs);
+                libs_offs.push(offs);
             },
             Some(DT_STRTAB) => {
                 dt_strtab = dyn_element.d_val(endian).into();
@@ -55,13 +53,13 @@ where
             Some(DT_STRSZ) => {
                 dt_strsz = dyn_element.d_val(endian).into();
             }
-            _ => (),
+            _ => warn!("Dynamic element's tag {} does not fit into u32", dyn_element.d_tag(endian).into()),
         }
     }
     let libs_offs = libs_offs.iter()
         .map(|n| u32::try_from(*n).ok());
     let str_table = StringTable::new(
-        bin_data.as_slice(), dt_strtab, dt_strtab + dt_strsz
+        bin_data, dt_strtab, dt_strtab + dt_strsz
     );
     let mut libs: Vec<String> = vec![];
     for offs in libs_offs {
@@ -78,11 +76,45 @@ where
             libs.push(name.to_string());
         }
         else {
-            warn!("Couldn't get lib name by offset");
+            warn!("Couldn't get lib name by offset {}, strtab {}", offs, dt_strtab);
             continue;
         }
     }
-    return Ok(libs);
+    Ok(libs)
+}
+
+fn get_needed_libs<P>(path: P) -> Result<Vec<String>, HandleError>
+where
+    P: AsRef<std::path::Path> 
+{
+    let bin_data = fs::read(path)
+        .map_err(HandleError::IoError)?;
+    
+    let kind = match object::FileKind::parse(bin_data.as_slice()) {
+        Ok(k) => k,
+        Err(e) => {
+            warn!("Could not parse file");
+            return Err(HandleError::ObjectReadError(e));
+        },
+    };
+
+    match kind {
+        object::FileKind::Elf32 => {
+            debug!("Parsing elf32 file");
+            let elf_header = FileHeader64::<object::Endianness>::parse(&*bin_data)
+                .map_err(HandleError::ObjectReadError)?;
+            let endian = elf_header.endian().unwrap();
+            extract_libs(bin_data.as_slice(), endian, elf_header)
+        },
+        object::FileKind::Elf64 => {
+            debug!("Parsing elf64 file");
+            let elf_header = FileHeader64::<object::Endianness>::parse(&*bin_data)
+                .map_err(HandleError::ObjectReadError)?;
+            let endian = elf_header.endian().unwrap();
+            extract_libs(bin_data.as_slice(), endian, elf_header)
+        },
+        _ => Err(HandleError::NotElf)
+    }
 }
 
 fn main() {
