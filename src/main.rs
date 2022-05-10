@@ -146,7 +146,8 @@ fn main() {
         }
     }
     let mut lib_list: Vec<(String, Vec<String>)> = lib_map.into_iter().collect();
-    lib_list.sort_by_key(|p| p.1.len());
+    lib_list.sort_unstable_by_key(|p| p.1.len());
+    lib_list.reverse();
     for (lib, exes) in lib_list {
         println!("{} ({} exes)", lib, exes.len());
         for exe in exes {
