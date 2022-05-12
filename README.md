@@ -10,3 +10,6 @@ Run the program with `cargo run` specifying folder with binaries as an cmd argum
 `cargo run -- -e /usr/bin`
 
 By default `/` folder is considered.
+
+### Log level
+You can specify logging level by setting `RUST_LOG` environment variable to some level or `none`
